@@ -6,8 +6,8 @@
     "test": "npx ts-node src/main.ts",
     "start": "node dist/main.js",
     "build": "tsc",
-    "install": "tsc && node Install.js",
-    "uninstall": "node Uninstall.js"
+    "deploy": "tsc && node Install.js",
+    "undeploy": "node Uninstall.js"
   },
   "author": "",
   "license": "ISC",
