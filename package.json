@@ -1,0 +1,37 @@
+{
+  "name": "ucl_pms_linewebhook_local",
+  "version": "1.0.0",
+  "main": "main.js",
+  "scripts": {
+    "test": "npx ts-node src/main.ts",
+    "start": "node dist/main.js",
+    "build": "tsc",
+    "install": "tsc && node Install.js",
+    "uninstall": "node Uninstall.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "description": "An Firebase Realtime-Database triggering application running as a Windows service",
+  "dependencies": {
+    "axios": "^1.7.2",
+    "body-parser": "^1.20.2",
+    "express": "^4.19.2",
+    "firebase-admin": "^12.1.1",
+    "firebase-functions": "^4.3.1",
+    "moment": "^2.30.1",
+    "moment-timezone": "^0.5.45",
+    "node-abort-controller": "^3.1.1",
+    "node-windows": "^1.0.0-beta.8",
+    "qs": "^6.12.3",
+    "stream": "^0.0.3"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^5.12.0",
+    "@typescript-eslint/parser": "^5.12.0",
+    "eslint": "^8.9.0",
+    "eslint-config-google": "^0.14.0",
+    "eslint-plugin-import": "^2.25.4",
+    "firebase-functions-test": "^3.1.0",
+    "typescript": "^4.9.0"
+  }
+}
