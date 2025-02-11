@@ -81,25 +81,18 @@ const initServer = (): Promise<void> => {
             try {
                 let currentCache = currentCacheSnapshot.val();
                 console.log(".");
-
-                if (!currentCache) {
-                    currentCache = {
-                        [strPerformerCaches]: {
-                            [ImageEventPerformerName]: DefaultImageEventPerformerCache,
-                            [CallUipathAPIEventPerformerName]: DefaultCallUipathAPIEventPerformerCache
-                        },
-                        [strLocalConfigs]: {
-                            [strlocalImagePath]: "C:\\",
-                            [strsaveImageOnLocal]: false,
-                            [strUiPathFolder]:"Non Production/Meter_Record",
-                            [strQueueName]:"UnrecognizedImages"
-                        }
-                    };
-                    //await ServerInstanceDatabase.set(newValue);
-                    //IsInit = true;
-                    //resolve(); // Resolve Promise หลังจากตั้งค่าเสร็จ
-                    //return;
-                }
+                currentCache = {
+                    [strPerformerCaches]: {
+                        [ImageEventPerformerName]: DefaultImageEventPerformerCache,
+                        [CallUipathAPIEventPerformerName]: DefaultCallUipathAPIEventPerformerCache
+                    },
+                    [strLocalConfigs]: {
+                        [strlocalImagePath]: "C:\\",
+                        [strsaveImageOnLocal]: false,
+                        [strUiPathFolder]:"Non Production/Meter_Record",
+                        [strQueueName]:"UnrecognizedImages"
+                    }
+                };
 
                 if (currentCache[strImageTransactions]) {
                     const imageTransaction = { ...currentCache[strImageTransactions] };
