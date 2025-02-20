@@ -66,6 +66,9 @@ PerformerCaches.child(ImageEventPerformerName).on('child_removed',(snapshot)=>{
 PerformerCaches.child(CallUipathAPIEventPerformerName).on('child_removed',(snapshot)=>{
     PerformerCaches.child(CallUipathAPIEventPerformerName).set(DefaultCallUipathAPIEventPerformerCache);
 })
+LocalConfigs.child(strUiPathFolder).on('child_changed',(snapshot)=>{
+    PerformerCaches.child(CallUipathAPIEventPerformerName).set(DefaultCallUipathAPIEventPerformerCache);
+})
 
 ServerHealth.child("lastActive").on('value',(DataSnapshot:DataSnapshot)=>{
     ServerHealth.child("lastActive").set(moment().tz('Asia/Bangkok').format("YYYY-MM-DD HH:mm:ss"));
