@@ -176,12 +176,14 @@ const startServer = async () => {
             if(Cache.val()){
                 const CacheValues:performerCache = Cache.val()
                 if(CacheValues.auth){
-                    if(isTokenExpired(CacheValues.auth)){
+                    if(!isTokenExpired(CacheValues.auth)){
+                        //console.log("valid")
                         return "valid";
                     }
                     
                 }
             }
+            //console.log("invalid");
             await reauth();
             return "valid";
         });

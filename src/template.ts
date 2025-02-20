@@ -16,7 +16,7 @@ const app = initializeApp({
 
 const database = getDatabase(app);
 const strPerformerCaches = "PerformerCaches";
-const ServerInstanceDatabase = database.ref("/NonProduction");
+const ServerInstanceDatabase = database.ref("/Production");
 const PerformerCaches: Reference = ServerInstanceDatabase.child(strPerformerCaches);
 
 const transactionState = {new:"new",process:"process",failed:"failed",successful:"successful",pending:"pending",finalize:"finalize",takeover:"takeover"}
