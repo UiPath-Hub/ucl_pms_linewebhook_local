@@ -2,6 +2,7 @@
   "name": "ucl_pms_linewebhook_local",
   "version": "1.0.0",
   "main": "main.js",
+  "environment":"Production",
   "scripts": {
     "test": "npx ts-node src/main.ts",
     "start": "node dist/main.js",
