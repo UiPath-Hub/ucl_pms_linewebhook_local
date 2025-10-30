@@ -6,8 +6,8 @@ import {
     EventTransactionInfo,
 } from './type';
 
-const databaseURL = {value:()=>process.env.DATABASE_URL};
-const storageBucket = {value:()=>process.env.STORAGEBUCKET_URL};
+const databaseURL = {value:()=>process.env.DATABASE_URL!};
+const storageBucket = {value:()=>process.env.STORAGEBUCKET_URL!};
 
 const app = initializeApp({
     credential: cert(serviceAccount),

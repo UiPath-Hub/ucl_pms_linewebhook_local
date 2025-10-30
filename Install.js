@@ -3,7 +3,7 @@ const path = require('path');
 const dotenv = require('dotenv');
 const packageJson = require('./package.json');
 
-//โหลดค่าจากไฟล์ .env
+// โหลดค่าจากไฟล์ .env
 dotenv.config();
 
 const installing = async () => {
@@ -11,13 +11,21 @@ const installing = async () => {
 Package name: ${packageJson.name}
 Script: ./dist/${packageJson.main}`);
 
-  //อ่านค่าจาก process.env
-  const envVars = [
-    { name: 'PORTAL_API_TOKEN', value: process.env.PORTAL_API_TOKEN },
-    { name: 'PORTAL_PORT', value: process.env.PORTAL_PORT },
-    { name: 'DATABASE_URL', value: process.env.DATABASE_URL },
-    { name: 'STORAGEBUCKET_URL', value: process.env.STORAGEBUCKET_URL }
-  ];
+  // รายการ env variables ที่ต้องมี
+  const requiredEnvVars = ['PORTAL_API_TOKEN', 'PORTAL_PORT', 'DATABASE_URL', 'STORAGEBUCKET_URL','LINE_CHANNEL_ACCESS_TOKEN', 'LINE_CHANNEL_SECRET', 'UIPATH_APP_ID', 'UIPATH_APP_SECRET', 'UIPATH_CLOUD_TENANT_ADDRESS', 'UIPATH_SCOPE' ];
+
+  // ตรวจสอบว่าค่า env ถูกตั้งครบหรือไม่
+  const missingVars = requiredEnvVars.filter(key => !process.env[key]);
+  if (missingVars.length > 0) {
+    console.error('Cannot install service. Missing environment variables:', missingVars.join(', '));
+    process.exit(1); // หยุด script ถ้า env ไม่ครบ
+  }
+
+  // สร้าง array ของ env variables สำหรับ node-windows
+  const envVars = requiredEnvVars.map(key => ({
+    name: key,
+    value: process.env[key]
+  }));
 
   const svc = new Service({
     name: packageJson.name,

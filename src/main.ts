@@ -18,7 +18,14 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as qs from 'qs';
 
-const token = require("./../token.json");
+const token = {
+    LINE_CHANNEL_ACCESS_TOKEN:process.env.LINE_CHANNEL_ACCESS_TOKEN!,
+    UIPATH_APP_ID:process.env.UIPATH_APP_ID!,
+    UIPATH_APP_SECRET:process.env.UIPATH_APP_SECRET!,
+    UIPATH_CLOUD_TENANT_ADDRESS:process.env.UIPATH_CLOUD_TENANT_ADDRESS!,
+    UIPATH_SCOPE:process.env.UIPATH_SCOPE!,
+    LINE_CHANNEL_SECRET:process.env.LINE_CHANNEL_SECRET!
+};
 const channelAccessToken= token.LINE_CHANNEL_ACCESS_TOKEN//: StringParam = defineString("LINE_CHANNEL_ACCESS_TOKEN");
 const UIpathAppID=token.UIPATH_APP_ID//: StringParam = defineString("UIPATH_APP_ID");
 const UIpathAppSecret=token.UIPATH_APP_SECRET//: StringParam = defineString("UIPATH_APP_SECRET");
