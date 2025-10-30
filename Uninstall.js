@@ -1,20 +1,25 @@
 const Service = require('node-windows').Service;
-const package = require('./package.json');
+const path = require('path');
+const packageJson = require('./package.json');
 
-// Create a new service object (same configuration as when it was installed)
-const uninstall =async ()=>{
-  console.log(`Uninstalling...\nPackage name:${package.name}`);
+const uninstall = async () => {
+  console.log(`Uninstalling...\nPackage name: ${packageJson.name}`);
+
   const svc = new Service({
-  name: package.name, // Replace with your service name
+    name: packageJson.name,
+    description: packageJson.description,
+    script: path.join(__dirname, 'dist', packageJson.main),
   });
 
-  // Listen for the "uninstall" event
   svc.on('uninstall', () => {
-  console.log('Service uninstalled!');
+    console.log('Service uninstalled successfully!');
   });
 
-  // Uninstall the service
+  svc.on('alreadyuninstalled', () => {
+    console.log('Service is not installed or already uninstalled.');
+  });
+
   svc.uninstall();
-}
+};
 
 uninstall();
