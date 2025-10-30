@@ -6,8 +6,8 @@ import {
     EventTransactionInfo,
 } from './type';
 
-const databaseURL = {value:()=>"https://ucl-pms-project-firebase-default-rtdb.asia-southeast1.firebasedatabase.app"};
-const storageBucket = {value:()=>"gs://ucl-pms-project-firebase.firebasestorage.app"};
+const databaseURL = {value:()=>process.env.DATABASE_URL};
+const storageBucket = {value:()=>process.env.STORAGEBUCKET_URL};
 
 const app = initializeApp({
     credential: cert(serviceAccount),
