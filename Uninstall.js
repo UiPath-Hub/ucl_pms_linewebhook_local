@@ -7,8 +7,7 @@ const uninstall = async () => {
 
   const svc = new Service({
     name: packageJson.name,
-    description: packageJson.description,
-    script: path.join(__dirname, 'dist', packageJson.main),
+    script: path.join(__dirname, 'dist', packageJson.main)
   });
 
   svc.on('uninstall', () => {
@@ -16,7 +15,7 @@ const uninstall = async () => {
   });
 
   svc.on('alreadyuninstalled', () => {
-    console.log('Service is not installed or already uninstalled.');
+    console.log('Service is not installed or already removed.');
   });
 
   svc.uninstall();
