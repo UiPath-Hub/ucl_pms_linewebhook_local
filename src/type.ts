@@ -72,14 +72,16 @@ export interface UnrecognizedImagesContent {
     "CreateDate": string;
 }
 
-export interface LineImageEventTransactionInfo{
+export interface EventTransactionInfo{
     eventID:string,
     date:string,
     time:string,
     state:'new'|'process'|'failed'|'pending'|'successful'|string,
     retriesCount:number,
     timeStamp:number,
-    output?:any
+    parameters?:any,
+    output?:any,
+    type:string
 }
 
 

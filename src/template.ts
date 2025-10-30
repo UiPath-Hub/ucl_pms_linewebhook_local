@@ -3,7 +3,7 @@ import { getDatabase, Reference ,DataSnapshot } from "firebase-admin/database";
 const serviceAccount :any= require('./../ucl-pms-project-firebase-c6b10789f613.json');
 const packageEnv:any=require('./../package.json');
 import {
-    LineImageEventTransactionInfo,
+    EventTransactionInfo,
 } from './type';
 
 const databaseURL = {value:()=>"https://ucl-pms-project-firebase-default-rtdb.asia-southeast1.firebasedatabase.app"};
@@ -28,7 +28,7 @@ type pendingTracesData = {[key:string]:{timestamp:number,next?:string}}
 type uipathToken = {access_token:string,expires_in:number,expired_time:string,scope:string,token_type:string,folderInfo?:any,requireToken?:true}
 const EntryTransactionState:{valid:"valid",invalid:"invalid"} = {valid:"valid",invalid:"invalid"}
 
-const Listener_NewTransaction = (initFact:boolean,ref:Reference,performerCacheName:string,defaultCache:any,initializeFunction?:(snapshot_queueKey:string,snapshot_queueData:LineImageEventTransactionInfo)=>Promise<"valid"|"invalid">)=>{
+const Listener_NewTransaction = (initFact:boolean,ref:Reference,performerCacheName:string,defaultCache:any,initializeFunction?:(snapshot_queueKey:string,snapshot_queueData:EventTransactionInfo)=>Promise<"valid"|"invalid">)=>{
     return ref.orderByChild("state").equalTo(transactionState.new).on('child_added',async (snapshot_queue:DataSnapshot) => {
     if(!initFact)return;
     try{
@@ -36,7 +36,7 @@ const Listener_NewTransaction = (initFact:boolean,ref:Reference,performerCacheNa
         if (snapshot_queue.key == null) return;
     
         const snapshot_queueKey: string = snapshot_queue.key;
-        const snapshot_queueData: LineImageEventTransactionInfo = snapshot_queue.val();
+        const snapshot_queueData: EventTransactionInfo = snapshot_queue.val();
         console.log(`New : ${performerCacheName} ${snapshot_queueKey}`);
         let result:"valid"|"invalid"=EntryTransactionState.valid;
         if(initializeFunction && typeof initializeFunction == 'function'){
@@ -83,7 +83,7 @@ const Listener_NewTransaction = (initFact:boolean,ref:Reference,performerCacheNa
     });
 }
 
-const Listener_PrecessTransaction = (initFact:boolean,ref:Reference,performerCacheName:string,processFunction?:(snapshot_queueKey:string,snapshot_queueData:LineImageEventTransactionInfo)=>Promise<any|void>)=>{
+const Listener_PrecessTransaction = (initFact:boolean,ref:Reference,performerCacheName:string,processFunction?:(snapshot_queueKey:string,snapshot_queueData:EventTransactionInfo)=>Promise<any|void>)=>{
     return ref.orderByChild("state").equalTo(transactionState.process).on('child_added',async (snapshot_queue:DataSnapshot) => {
         if(!initFact)return;
         try{
@@ -91,7 +91,7 @@ const Listener_PrecessTransaction = (initFact:boolean,ref:Reference,performerCac
             if(snapshot_queue.key == null)return;
             
             const snapshot_queueKey:string = snapshot_queue.key;
-            let snapshot_queueData:LineImageEventTransactionInfo = snapshot_queue.val();
+            let snapshot_queueData:EventTransactionInfo = snapshot_queue.val();
             console.log(`Process : ${performerCacheName} ${snapshot_queueKey}`);
             try{
                 let output;
@@ -119,7 +119,7 @@ const Listener_FailedTransaction=(initFact:boolean,ref:Reference,performerCacheN
         if(!snapshot_queue.exists())return;
         if(snapshot_queue.key == null)return;
         const snapshot_queueKey:string = snapshot_queue.key;
-        let snapshot_queueData:LineImageEventTransactionInfo = snapshot_queue.val();
+        let snapshot_queueData:EventTransactionInfo = snapshot_queue.val();
         console.log(`Retry : ${performerCacheName} ${snapshot_queueKey}`);
         
         PerformerCaches.child(performerCacheName).transaction((currentCache) => {
@@ -149,14 +149,14 @@ const Listener_FailedTransaction=(initFact:boolean,ref:Reference,performerCacheN
     });
 }
 
-const Listener_FinalizeTransaction =(initFact:boolean,ref:Reference,performerCacheName:string,defaultCache:any,finalizeFunction?:(snapshot_queueKey:string,snapshot_queueData:LineImageEventTransactionInfo)=>Promise<any|void>)=>{
+const Listener_FinalizeTransaction =(initFact:boolean,ref:Reference,performerCacheName:string,defaultCache:any,finalizeFunction?:(snapshot_queueKey:string,snapshot_queueData:EventTransactionInfo)=>Promise<any|void>)=>{
     return ref.orderByChild("state").equalTo(transactionState.finalize).on('child_added',async (snapshot_queue:DataSnapshot) => {
         if(!initFact)return;
         try{
             if(!snapshot_queue.exists())return;
             if(snapshot_queue.key == null)return;
             const snapshot_queueKey:string = snapshot_queue.key;
-            const snapshot_queueData:LineImageEventTransactionInfo = snapshot_queue.val();
+            const snapshot_queueData:EventTransactionInfo = snapshot_queue.val();
             console.log(`Finalize : ${performerCacheName} ${snapshot_queueKey}`);
     
             PerformerCaches.child(performerCacheName).transaction((currentCache:performerCache) => {
@@ -215,7 +215,7 @@ const Listener_PendingTransaction = (initFact:boolean,ref:Reference,performerCac
         if (snapshot_queue.key == null) return;
     
         const snapshot_queueKey: string = snapshot_queue.key;
-        const snapshot_queueData: LineImageEventTransactionInfo = snapshot_queue.val();
+        const snapshot_queueData: EventTransactionInfo = snapshot_queue.val();
         console.log(`Pending : ${performerCacheName} ${snapshot_queueKey}`);
 
         ref.orderByChild("state").equalTo(transactionState.pending).once('child_removed',async (snapshot_queue:DataSnapshot) => {
@@ -309,7 +309,7 @@ const addListenerToPendingQueue= (initFact:boolean,ref:Reference,snapshot_queueK
         if(!initFact)return;
         const pendingTracesData:pendingTracesData = pendingDataSnapshot.val();
         //listen for it to get remove to maintain pendingTrace.
-        ref.child(snapshot_queueKey).transaction((pendingTransactionSnapshot:LineImageEventTransactionInfo)=>{
+        ref.child(snapshot_queueKey).transaction((pendingTransactionSnapshot:EventTransactionInfo)=>{
             //trigger the transaction to new again.
             if(!pendingTransactionSnapshot) return;
             if(pendingTransactionSnapshot.state === transactionState.pending){
