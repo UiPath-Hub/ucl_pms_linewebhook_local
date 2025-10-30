@@ -10,6 +10,8 @@ const installing = async () => {
   console.log(`Installing... 
 Package name: ${packageJson.name}
 Script: ./dist/${packageJson.main}`);
+  console.log('Checking environment variables...');
+  console.log('Make sure firebase service account JSON is valid.');
 
   // รายการ env variables ที่ต้องมี
   const requiredEnvVars = ['PORTAL_API_TOKEN', 'PORTAL_PORT', 'DATABASE_URL', 'STORAGEBUCKET_URL','LINE_CHANNEL_ACCESS_TOKEN', 'LINE_CHANNEL_SECRET', 'UIPATH_APP_ID', 'UIPATH_APP_SECRET', 'UIPATH_CLOUD_TENANT_ADDRESS', 'UIPATH_SCOPE' ];
