@@ -4,8 +4,8 @@
   "main": "main.js",
   "environment": "NonProduction",
   "scripts": {
-    "test": "npx ts-node src/main.ts",
-    "start": "node dist/main.js",
+    "test": "npx ts-node -r dotenv/config src/main.ts",
+    "start": "node -r dotenv/config dist/main.js",
     "build": "tsc",
     "deploy": "tsc && node Install.js",
     "undeploy": "node Uninstall.js"
