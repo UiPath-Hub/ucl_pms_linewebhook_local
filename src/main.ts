@@ -273,8 +273,9 @@ const startServer = async () => {
                     setRealtimeDatabase(LocalConfigs,DefaultQueueName_ERPSync,strQueueName_ERPSync,"");
                     queueName = DefaultQueueName_ERPSync;
                 }
+                
                 const content: any = {
-                    "COMPANY_ID": snapshot_queueData.parameters?.COMPANY_ID||""
+                    ...snapshot_queueData.parameters
                 };
                 const queue_detail: QueueItemDataDto = {
                     "Name": queueName,
@@ -339,16 +340,20 @@ appServer.get("/health", (req, res) => {
     status: "ok",
     time: new Date().toISOString(),
     COMPANY_ID: req.headers["company_id"],
+    CONTACT_ID: req.headers["contact_id"],
   });
   console.log("pinged",req.ip);
 });
 
-appServer.post("/SyncCompany", async (req, res) => {
+appServer.post("/Sync", async (req, res) => {
   try {
     // ดึงค่า COMPANY_ID จาก header
     const companyId = req.headers["company_id"] || req.headers["COMPANY-ID"];
-    if (!companyId) {
-      return res.status(400).json({ error: "Missing COMPANY_ID in header" });
+    const contactId = req.headers["contact_id"] || req.headers["CONTACT-ID"];
+    const tableName = req.headers["table_name"] || req.headers["TABLE-NAME"];
+    const status = req.headers["status"] || req.headers["STATUS"];
+    if (!companyId || !contactId || !tableName || !status) {
+      return res.status(400).json({ error: "Missing parameters"});
     }
 
     // สร้าง eventID แบบ unique
@@ -362,7 +367,7 @@ appServer.post("/SyncCompany", async (req, res) => {
       state: transactionState.new,
       retriesCount: 0,
       timeStamp: Date.now(),
-      parameters: { COMPANY_ID: companyId },
+      parameters: { COMPANY_ID: companyId, CONTACT_ID: contactId, TABLE_NAME: tableName, STATUS: status },
       type: "ERPSync",
     };
 
