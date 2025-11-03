@@ -273,7 +273,7 @@ const startServer = async () => {
                     setRealtimeDatabase(LocalConfigs,DefaultQueueName_ERPSync,strQueueName_ERPSync,"");
                     queueName = DefaultQueueName_ERPSync;
                 }
-                
+
                 const content: any = {
                     ...snapshot_queueData.parameters
                 };
@@ -352,7 +352,7 @@ appServer.post("/Sync", async (req, res) => {
     const contactId = req.headers["contact_id"] || req.headers["CONTACT-ID"];
     const tableName = req.headers["table_name"] || req.headers["TABLE-NAME"];
     const status = req.headers["status"] || req.headers["STATUS"];
-    if (!companyId || !contactId || !tableName || !status) {
+    if ((!companyId && !contactId) || !tableName || !status) {
       return res.status(400).json({ error: "Missing parameters"});
     }
 
