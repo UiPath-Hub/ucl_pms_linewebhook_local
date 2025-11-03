@@ -352,9 +352,14 @@ appServer.post("/Sync", async (req, res) => {
     const contactId = req.headers["contact_id"] || req.headers["CONTACT-ID"];
     const tableName = req.headers["table_name"] || req.headers["TABLE-NAME"];
     const status = req.headers["status"] || req.headers["STATUS"];
+    const params:any = {};
     if ((!companyId && !contactId) || !tableName || !status) {
       return res.status(400).json({ error: "Missing parameters"});
     }
+    if(companyId) params["COMPANY_ID"] = companyId;
+    if(contactId) params["CONTACT_ID"] = contactId;
+    if(tableName) params["TABLE_NAME"] = tableName;
+    if(status) params["STATUS"] = status;
 
     // สร้าง eventID แบบ unique
     const eventID = `${crypto.randomUUID()}`;
@@ -367,7 +372,7 @@ appServer.post("/Sync", async (req, res) => {
       state: transactionState.new,
       retriesCount: 0,
       timeStamp: Date.now(),
-      parameters: { COMPANY_ID: companyId, CONTACT_ID: contactId, TABLE_NAME: tableName, STATUS: status },
+      parameters: params,
       type: "ERPSync",
     };
 
