@@ -1,5 +1,6 @@
 .vs/
 .env
+bara.env
 
 #secrets
 ucl-pms-project-firebase-c6b10789f613.json

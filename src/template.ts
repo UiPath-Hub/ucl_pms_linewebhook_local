@@ -1,7 +1,7 @@
 import { initializeApp, cert} from 'firebase-admin/app';
 import { getDatabase, Reference ,DataSnapshot } from "firebase-admin/database";
 const serviceAccount :any= require('./../ucl-pms-project-firebase-c6b10789f613.json');
-const packageEnv:any=require('./../package.json');
+
 import {
     EventTransactionInfo,
 } from './type';
@@ -17,7 +17,7 @@ const app = initializeApp({
 
 const database = getDatabase(app);
 const strPerformerCaches = "PerformerCaches";
-const ServerInstanceDatabase = database.ref("/"+packageEnv.environment||"test");
+const ServerInstanceDatabase = database.ref("/"+process.env.SERVER_INSTANCE_DATABASE||"test");
 const PerformerCaches: Reference = ServerInstanceDatabase.child(strPerformerCaches);
 
 const transactionState = {new:"new",process:"process",failed:"failed",successful:"successful",pending:"pending",finalize:"finalize",takeover:"takeover"}
