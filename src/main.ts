@@ -352,7 +352,6 @@ const reauth =async ()=>{
             if(!getConfigFolder){
                 setRealtimeDatabase(LocalConfigs,folder.Default,folder.FolderKey,"");
             }
-            console.log(`${MainURL}?%24filter=${filter_properties}%20eq%20%27${compare_value}%27`);
             const encodedCompareValue = encodeURIComponent(compare_value);
 
             const folderInfoResponse = await axios({
