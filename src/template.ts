@@ -28,6 +28,107 @@ type pendingTracesData = {[key:string]:{timestamp:number,next?:string}}
 type uipathToken = {access_token:string,expires_in:number,expired_time:string,scope:string,token_type:string,folderInfo?:any,requireToken?:true}
 const EntryTransactionState:{valid:"valid",invalid:"invalid"} = {valid:"valid",invalid:"invalid"}
 
+const processedTransactions: Map<string, { timestamp: number; version: number }> = new Map();
+const DEDUP_WINDOW_MS = 60000;
+const PROCESSING_LOCK_TIMEOUT_MS = 30000;
+
+const getDeduplicationKey = (eventID: string, timeStamp: number): string => {
+    return `${eventID}_${timeStamp}`;
+};
+
+const isTransactionDuplicate = (eventID: string, timeStamp: number, currentVersion: number = 0): boolean => {
+    const key = getDeduplicationKey(eventID, timeStamp);
+    const stored = processedTransactions.get(key);
+    
+    if (!stored) return false;
+    
+    const age = Date.now() - stored.timestamp;
+    if (age > DEDUP_WINDOW_MS) {
+        processedTransactions.delete(key);
+        return false;
+    }
+    
+    return stored.version <= currentVersion;
+};
+
+const markTransactionProcessed = (eventID: string, timeStamp: number, version: number): void => {
+    const key = getDeduplicationKey(eventID, timeStamp);
+    processedTransactions.set(key, { timestamp: Date.now(), version });
+    
+    if (processedTransactions.size > 10000) {
+        const oldestEntry = Array.from(processedTransactions.entries())
+            .sort((a, b) => a[1].timestamp - b[1].timestamp)[0];
+        processedTransactions.delete(oldestEntry[0]);
+    }
+};
+
+const acquireProcessingLock = (ref: Reference, key: string, expectedState: string): Promise<boolean> => {
+    return new Promise((resolve, reject) => {
+        ref.child(key).transaction((current: any) => {
+            if (!current || current.state !== expectedState) return;
+            if (current.processingLocked) return;
+            
+            const updated = { ...current, processingLocked: true, lockTime: Date.now() };
+            return updated;
+        }, (error: any, committed: boolean) => {
+            if (error) return reject(error);
+            resolve(committed);
+        });
+    });
+};
+
+const releaseProcessingLock = (ref: Reference, key: string): Promise<boolean> => {
+    return new Promise((resolve, reject) => {
+        ref.child(key).transaction((current: any) => {
+            if (!current) return;
+            if (!current.processingLocked) return;
+            
+            const lockAge = Date.now() - (current.lockTime || 0);
+            if (lockAge > PROCESSING_LOCK_TIMEOUT_MS) {
+                const updated = { ...current, processingLocked: false, lockTime: null };
+                return updated;
+            }
+            return;
+        }, (error: any, committed: boolean) => {
+            if (error) return reject(error);
+            resolve(committed);
+        });
+    });
+};
+
+const incrementTransactionVersion = (ref: Reference, key: string): Promise<boolean> => {
+    return new Promise((resolve, reject) => {
+        ref.child(key).transaction((current: any) => {
+            if (!current) return;
+            const updated = { ...current, version: (current.version || 0) + 1 };
+            return updated;
+        }, (error: any, committed: boolean) => {
+            if (error) return reject(error);
+            resolve(committed);
+        });
+    });
+};
+
+const getRetryDelay = (retryCount:number): number => {
+    const baseDelay = 1000;
+    const delay = baseDelay * Math.pow(2, retryCount);
+    return Math.min(delay, 60000);
+};
+
+const updateTransactionState = (ref: Reference, key: string, expectedState: string, newState: string, updateFields?: (transaction:any)=>void): Promise<boolean> => {
+    return new Promise((resolve, reject) => {
+        ref.child(key).transaction((current: any) => {
+            if (!current || current.state !== expectedState) return;
+            const updated = { ...current, state: newState };
+            if (updateFields) updateFields(updated);
+            return updated;
+        }, (error:any, committed:boolean) => {
+            if (error) return reject(error);
+            resolve(committed);
+        });
+    });
+};
+
 const Listener_NewTransaction = (initFact:boolean,ref:Reference,performerCacheName:string,defaultCache:any,initializeFunction?:(snapshot_queueKey:string,snapshot_queueData:EventTransactionInfo)=>Promise<"valid"|"invalid">)=>{
     return ref.orderByChild("state").equalTo(transactionState.new).on('child_added',async (snapshot_queue:DataSnapshot) => {
     if(!initFact)return;
@@ -38,6 +139,12 @@ const Listener_NewTransaction = (initFact:boolean,ref:Reference,performerCacheNa
         const snapshot_queueKey: string = snapshot_queue.key;
         const snapshot_queueData: EventTransactionInfo = snapshot_queue.val();
         console.log(`New : ${performerCacheName} ${snapshot_queueKey}`);
+        
+        if (isTransactionDuplicate(snapshot_queueData.eventID, snapshot_queueData.timeStamp, snapshot_queueData.version || 0)) {
+            console.log(`Duplicate transaction detected: ${snapshot_queueData.eventID} v${snapshot_queueData.version}`);
+            return;
+        }
+        
         let result:"valid"|"invalid"=EntryTransactionState.valid;
         if(initializeFunction && typeof initializeFunction == 'function'){
             result = await initializeFunction(snapshot_queueKey,snapshot_queueData);
@@ -62,18 +169,35 @@ const Listener_NewTransaction = (initFact:boolean,ref:Reference,performerCacheNa
                 if (error) {
                     console.log("Transaction failed: " + error.message,error);
                 } else if (!committed) {
-                    snapshot_queueData.state = transactionState.pending;
-                    snapshot_queueData.output = EntryTransactionState.valid
-                    ref.child(snapshot_queueKey).update(snapshot_queueData)
+                    try {
+                        await updateTransactionState(ref, snapshot_queueKey, transactionState.new, transactionState.pending, (current) => {
+                            current.output = EntryTransactionState.valid;
+                            if (!current.version) current.version = 0;
+                        });
+                    } catch (err:any) {
+                        console.log("Failed to mark pending:", err.message || err);
+                    }
                 } else {
-                    snapshot_queueData.state = transactionState.process;
-                    ref.child(snapshot_queueKey).update(snapshot_queueData)
+                    try {
+                        await updateTransactionState(ref, snapshot_queueKey, transactionState.new, transactionState.process, (current) => {
+                            if (!current.version) current.version = 0;
+                            current.processedAt = Date.now();
+                        });
+                        markTransactionProcessed(snapshot_queueData.eventID, snapshot_queueData.timeStamp, 0);
+                        console.log(`Transaction accepted for processing: ${snapshot_queueData.eventID}`);
+                    } catch (err:any) {
+                        console.log("Failed to mark process:", err.message || err);
+                    }
                 }
             });    
         }else{
-            snapshot_queueData.state = transactionState.pending;
-            snapshot_queueData.output = EntryTransactionState.invalid;
-            ref.child(snapshot_queueKey).update(snapshot_queueData);
+            try {
+                await updateTransactionState(ref, snapshot_queueKey, transactionState.new, transactionState.pending, (current) => {
+                    current.output = EntryTransactionState.invalid;
+                });
+            } catch (err:any) {
+                console.log("Failed to mark invalid pending:", err.message || err);
+            }
         }
         
     }catch(err:any){
@@ -93,17 +217,42 @@ const Listener_PrecessTransaction = (initFact:boolean,ref:Reference,performerCac
             const snapshot_queueKey:string = snapshot_queue.key;
             let snapshot_queueData:EventTransactionInfo = snapshot_queue.val();
             console.log(`Process : ${performerCacheName} ${snapshot_queueKey}`);
+            
+            if (isTransactionDuplicate(snapshot_queueData.eventID, snapshot_queueData.timeStamp, snapshot_queueData.version || 0)) {
+                console.log(`Duplicate processing detected: ${snapshot_queueData.eventID} v${snapshot_queueData.version}, skipping`);
+                return;
+            }
+            
+            const lockAcquired = await acquireProcessingLock(ref, snapshot_queueKey, transactionState.process);
+            if (!lockAcquired) {
+                console.log(`Processing lock not acquired for ${snapshot_queueKey}, another instance is processing`);
+                return;
+            }
+            
             try{
-                let output;
+                let output:any;
                 if(processFunction&&typeof processFunction=='function')
-                output = await processFunction(snapshot_queueKey,snapshot_queueData);
-                snapshot_queueData.state = transactionState.finalize;
-                if(output)snapshot_queueData.output = output;
-                ref.child(snapshot_queueKey).update(snapshot_queueData);
+                    output = await processFunction(snapshot_queueKey,snapshot_queueData);
+                try {
+                    await updateTransactionState(ref, snapshot_queueKey, transactionState.process, transactionState.finalize, (current) => {
+                        if (output) current.output = output;
+                        current.processingLocked = false;
+                    });
+                    markTransactionProcessed(snapshot_queueData.eventID, snapshot_queueData.timeStamp, snapshot_queueData.version || 0);
+                } catch (err:any) {
+                    console.log("Failed to update to finalize:", err.message || err);
+                    await releaseProcessingLock(ref, snapshot_queueKey);
+                }
             }catch(err:any){
-                snapshot_queueData.state = transactionState.failed;
-                snapshot_queueData.output = err.message||err;
-                ref.child(snapshot_queueKey).update(snapshot_queueData);
+                try {
+                    await updateTransactionState(ref, snapshot_queueKey, transactionState.process, transactionState.failed, (current) => {
+                        current.output = err.message || err;
+                        current.processingLocked = false;
+                    });
+                } catch (updateErr:any) {
+                    console.log("Failed to update failed state:", updateErr.message || updateErr);
+                    await releaseProcessingLock(ref, snapshot_queueKey);
+                }
             }        
         }catch(err:any){
             console.log(`Error: process transaction on: ${performerCacheName}`,err.message|err)
@@ -122,6 +271,11 @@ const Listener_FailedTransaction=(initFact:boolean,ref:Reference,performerCacheN
         let snapshot_queueData:EventTransactionInfo = snapshot_queue.val();
         console.log(`Retry : ${performerCacheName} ${snapshot_queueKey}`);
         
+        if (isTransactionDuplicate(snapshot_queueData.eventID, snapshot_queueData.timeStamp, snapshot_queueData.version || 0)) {
+            console.log(`Duplicate retry detected: ${snapshot_queueData.eventID} v${snapshot_queueData.version}, skipping`);
+            return;
+        }
+        
         PerformerCaches.child(performerCacheName).transaction((currentCache) => {
             if(!initFact)return;
             if (!currentCache) {
@@ -134,10 +288,21 @@ const Listener_FailedTransaction=(initFact:boolean,ref:Reference,performerCacheN
                 console.log("Transaction failed: " + error.message,error);
             }else{
                 if(committed && snapshot_queueData.retriesCount<3){
-                    snapshot_queueData.state = transactionState.new;
-                    snapshot_queueData.retriesCount++
-                    snapshot_queueData.timeStamp = Date.now();
-                    setTimeout(()=>ref.child(snapshot_queueKey).update(snapshot_queueData),1000);
+                    const delayMs = getRetryDelay(snapshot_queueData.retriesCount || 0);
+                    const retryTime = Date.now() + delayMs;
+                    console.log(`Retrying ${snapshot_queueKey} in ${delayMs}ms (attempt ${snapshot_queueData.retriesCount + 1})`);
+                    setTimeout(async () => {
+                        try {
+                            await updateTransactionState(ref, snapshot_queueKey, transactionState.failed, transactionState.new, (current) => {
+                                current.retriesCount = (current.retriesCount || 0) + 1;
+                                current.timeStamp = Date.now();
+                                current.retryDelayMs = delayMs;
+                                current.nextRetryAt = retryTime;
+                            });
+                        } catch (err:any){
+                            console.log("Failed to schedule retry:", err.message || err);
+                        }
+                    }, delayMs);
                 }else{
                     console.log(`Failed : ${performerCacheName} ${snapshot_queueKey}`);
                 }
@@ -158,6 +323,11 @@ const Listener_FinalizeTransaction =(initFact:boolean,ref:Reference,performerCac
             const snapshot_queueKey:string = snapshot_queue.key;
             const snapshot_queueData:EventTransactionInfo = snapshot_queue.val();
             console.log(`Finalize : ${performerCacheName} ${snapshot_queueKey}`);
+            
+            if (isTransactionDuplicate(snapshot_queueData.eventID, snapshot_queueData.timeStamp, snapshot_queueData.version || 0)) {
+                console.log(`Duplicate finalize detected: ${snapshot_queueData.eventID} v${snapshot_queueData.version}, skipping`);
+                return;
+            }
     
             PerformerCaches.child(performerCacheName).transaction((currentCache:performerCache) => {
                 if(!initFact)return;
@@ -189,13 +359,15 @@ const Listener_FinalizeTransaction =(initFact:boolean,ref:Reference,performerCac
                 }else if(committed){
                     try{
                         if(finalizeFunction && typeof finalizeFunction=='function')
-                        await finalizeFunction(snapshot_queueKey,snapshot_queueData);
-                        snapshot_queueData.state = transactionState.successful;
-                        ref.child(snapshot_queueKey).update(snapshot_queueData);
+                            await finalizeFunction(snapshot_queueKey,snapshot_queueData);
+                        await updateTransactionState(ref, snapshot_queueKey, transactionState.finalize, transactionState.successful);
                     }catch(err:any){
                         console.log("try to finalize failed.",err.message|err)
-                        snapshot_queueData.state = transactionState.takeover;
-                        ref.child(snapshot_queueKey).update(snapshot_queueData);
+                        try {
+                            await updateTransactionState(ref, snapshot_queueKey, transactionState.finalize, transactionState.takeover);
+                        } catch (updateErr:any) {
+                            console.log("Failed to mark takeover:", updateErr.message || updateErr);
+                        }
                     }
                     
                 }
@@ -282,8 +454,11 @@ const Listener_PendingTransaction = (initFact:boolean,ref:Reference,performerCac
             if (error) {
                 console.log("Transaction failed: " + error.message,error);
             } else if (!committed) {
-                snapshot_queueData.state = transactionState.new;
-                ref.child(snapshot_queueKey).update(snapshot_queueData);
+                try {
+                    await updateTransactionState(ref, snapshot_queueKey, transactionState.pending, transactionState.new);
+                } catch (err:any) {
+                    console.log("Failed to reset pending state:", err.message || err);
+                }
             }else{
                 addListenerToPendingQueue(initFact,ref,snapshot_queueKey,performerCacheName,defaultCache);
             }

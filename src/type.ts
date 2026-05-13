@@ -81,7 +81,13 @@ export interface EventTransactionInfo{
     timeStamp:number,
     parameters?:any,
     output?:any,
-    type:string
+    type:string,
+    version?:number,
+    retryDelayMs?:number,
+    nextRetryAt?:number,
+    processingLocked?:boolean,
+    lockTime?:number,
+    processedAt?:number
 }
 
 

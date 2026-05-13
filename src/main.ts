@@ -97,8 +97,50 @@ ServerHealth.child("lastActive").on('value',(DataSnapshot:DataSnapshot)=>{
     }, 60000);
 })
 
+const validateEnvironmentVariables = (): void => {
+    const requiredEnvVars = [
+        'LINE_CHANNEL_ACCESS_TOKEN',
+        'UIPATH_APP_ID',
+        'UIPATH_APP_SECRET',
+        'UIPATH_CLOUD_TENANT_ADDRESS',
+        'UIPATH_SCOPE',
+        'LINE_CHANNEL_SECRET',
+        'DATABASE_URL',
+        'STORAGEBUCKET_URL',
+        'SERVER_INSTANCE_DATABASE'
+    ];
+
+    const missingVars: string[] = [];
+    const invalidVars: string[] = [];
+
+    requiredEnvVars.forEach(varName => {
+        const value = process.env[varName];
+        if (!value || value.trim() === '') {
+            missingVars.push(varName);
+        }
+    });
+
+    if (missingVars.length > 0) {
+        throw new Error(`Missing required environment variables: ${missingVars.join(', ')}`);
+    }
+
+    if (invalidVars.length > 0) {
+        throw new Error(`Invalid environment variables: ${invalidVars.join(', ')}`);
+    }
+
+    console.log('Environment variables validation passed');
+};
+
 const initServer = (): Promise<void> => {
     return new Promise((resolve, reject) => {
+        try {
+            // Validate environment variables before proceeding
+            validateEnvironmentVariables();
+        } catch (error) {
+            reject(error);
+            return;
+        }
+
         ServerInstanceDatabase.once('value', async (currentCacheSnapshot) => {
             try {
                 let currentCache = currentCacheSnapshot.val();
@@ -188,6 +230,8 @@ const startServer = async () => {
             const newCallUipathAPIQueue:EventTransactionInfo = {...snapshot_queueData,type:DefaultQueueName_MeterRecord};
             newCallUipathAPIQueue.state = transactionState.new;
             newCallUipathAPIQueue.retriesCount = 0;
+            newCallUipathAPIQueue.version = 0;
+            newCallUipathAPIQueue.timeStamp = Date.now();
             CallUipathAPITransactionQueue.push(newCallUipathAPIQueue);
         });
         Listener_PrecessTransaction(IsInit,LineTransactionQueue,ImageEventPerformerName,async (snapshot_queueKey:string,snapshot_queueData:EventTransactionInfo)=>{
@@ -384,7 +428,8 @@ const reauth =async ()=>{
                 state: transactionState.finalize,
                 retriesCount:0,
                 timeStamp:0,
-                type:"UiPathAuth"
+                type:"UiPathAuth",
+                version:0
             }
         await CallUipathAPITransactionQueue.child("Authenticated").set(AuthenticatedFinalizeTransaction);
         getAuthenticationProcessRunning.running=false;
@@ -459,7 +504,11 @@ const getLineImageToLocalPath = async (message: ImageMessage,messageName: string
         if (lineResponse) {
             try {
                 const buffer = Buffer.from(lineResponse.data);
-                const [mimeType, extension] = lineResponse.headers['content-type'].split('/'); // ใช้ headers แทน data.type
+                const contentType = lineResponse.headers['content-type'];
+                if (!contentType || typeof contentType !== 'string') {
+                    throw new Error('Missing content-type header');
+                }
+                const [mimeType, extension] = contentType.split('/'); // ใช้ headers แทน data.type
                 let LocalPath:string = await getRealtimeDatabase(LocalConfigs,"localImagePath","");
                 if(!LocalPath || LocalPath.trim()==""){ setRealtimeDatabase(LocalConfigs,"C:","localImagePath","");}
                 const defaultPath:string = "C:"
@@ -532,7 +581,11 @@ const getLineImage = async (message: ImageMessage,messageName: string, save_date
         if(lineResponse){
             try{
                 const buffer = Buffer.from(lineResponse.data);
-                const [mimeType, extension] = lineResponse.headers['content-type'].split('/'); // ใช้ headers แทน data.type
+                const contentType = lineResponse.headers['content-type'];
+                if (!contentType || typeof contentType !== 'string') {
+                    throw new Error('Missing content-type header');
+                }
+                const [mimeType, extension] = contentType.split('/'); // ใช้ headers แทน data.type
 
                 // Construct file path and access file reference
                 const filePath = `images/${save_date}/img${messageName}.${extension}`;
@@ -540,9 +593,9 @@ const getLineImage = async (message: ImageMessage,messageName: string, save_date
 
                 // Upload the buffer data with metadata and return result
                 await file.save(buffer, {
-                metadata: { contentType: lineResponse.headers['content-type'] },
-                public: true,
-                });            
+                  metadata: { contentType },
+                  public: true,
+                } as any);            
 
                 return { publicURL: file.publicUrl(), filePath };
             }catch(err:any){
