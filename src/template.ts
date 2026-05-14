@@ -29,15 +29,20 @@ type uipathToken = {access_token:string,expires_in:number,expired_time:string,sc
 const EntryTransactionState:{valid:"valid",invalid:"invalid"} = {valid:"valid",invalid:"invalid"}
 
 const processedTransactions: Map<string, { timestamp: number; version: number }> = new Map();
+const processedImage: Map<string, { timestamp: number; version: number }> = new Map();
 const DEDUP_WINDOW_MS = 60000;
 const PROCESSING_LOCK_TIMEOUT_MS = 30000;
 
-const getDeduplicationKey = (eventID: string, timeStamp: number): string => {
-    return `${eventID}_${timeStamp}`;
+const getDeduplicationKey = (
+  eventID: string,
+  timeStamp: number,
+  phase: string
+): string => {
+    return `${eventID}_${timeStamp}_${phase}`;
 };
 
-const isTransactionDuplicate = (eventID: string, timeStamp: number, currentVersion: number = 0): boolean => {
-    const key = getDeduplicationKey(eventID, timeStamp);
+const isTransactionDuplicate = (eventID: string, timeStamp: number,phase: string, currentVersion: number = 0): boolean => {
+    const key = getDeduplicationKey(eventID, timeStamp, phase);
     const stored = processedTransactions.get(key);
     
     if (!stored) return false;
@@ -51,8 +56,8 @@ const isTransactionDuplicate = (eventID: string, timeStamp: number, currentVersi
     return stored.version <= currentVersion;
 };
 
-const markTransactionProcessed = (eventID: string, timeStamp: number, version: number): void => {
-    const key = getDeduplicationKey(eventID, timeStamp);
+const markTransactionProcessed = (eventID: string, timeStamp: number, phase: string, version: number): void => {
+    const key = getDeduplicationKey(eventID, timeStamp, phase);
     processedTransactions.set(key, { timestamp: Date.now(), version });
     
     if (processedTransactions.size > 10000) {
@@ -138,9 +143,9 @@ const Listener_NewTransaction = (initFact:boolean,ref:Reference,performerCacheNa
     
         const snapshot_queueKey: string = snapshot_queue.key;
         const snapshot_queueData: EventTransactionInfo = snapshot_queue.val();
-        console.log(`New : ${performerCacheName} ${snapshot_queueKey}`);
+        console.log(`New : ${performerCacheName} ${snapshot_queueKey} ${snapshot_queueData.timeStamp}`);
         
-        if (isTransactionDuplicate(snapshot_queueData.eventID, snapshot_queueData.timeStamp, snapshot_queueData.version || 0)) {
+        if (isTransactionDuplicate(snapshot_queueData.eventID, snapshot_queueData.timeStamp,transactionState.new, snapshot_queueData.version || 0)) {
             console.log(`Duplicate transaction detected: ${snapshot_queueData.eventID} v${snapshot_queueData.version}`);
             return;
         }
@@ -183,7 +188,7 @@ const Listener_NewTransaction = (initFact:boolean,ref:Reference,performerCacheNa
                             if (!current.version) current.version = 0;
                             current.processedAt = Date.now();
                         });
-                        markTransactionProcessed(snapshot_queueData.eventID, snapshot_queueData.timeStamp, 0);
+                        markTransactionProcessed(snapshot_queueData.eventID, snapshot_queueData.timeStamp, transactionState.new, 0);
                         console.log(`Transaction accepted for processing: ${snapshot_queueData.eventID}`);
                     } catch (err:any) {
                         console.log("Failed to mark process:", err.message || err);
@@ -216,9 +221,9 @@ const Listener_PrecessTransaction = (initFact:boolean,ref:Reference,performerCac
             
             const snapshot_queueKey:string = snapshot_queue.key;
             let snapshot_queueData:EventTransactionInfo = snapshot_queue.val();
-            console.log(`Process : ${performerCacheName} ${snapshot_queueKey}`);
+            console.log(`Process : ${performerCacheName} ${snapshot_queueKey} ${snapshot_queueData.timeStamp}`);
             
-            if (isTransactionDuplicate(snapshot_queueData.eventID, snapshot_queueData.timeStamp, snapshot_queueData.version || 0)) {
+            if (isTransactionDuplicate(snapshot_queueData.eventID, snapshot_queueData.timeStamp,transactionState.process, snapshot_queueData.version || 0)) {
                 console.log(`Duplicate processing detected: ${snapshot_queueData.eventID} v${snapshot_queueData.version}, skipping`);
                 return;
             }
@@ -238,7 +243,7 @@ const Listener_PrecessTransaction = (initFact:boolean,ref:Reference,performerCac
                         if (output) current.output = output;
                         current.processingLocked = false;
                     });
-                    markTransactionProcessed(snapshot_queueData.eventID, snapshot_queueData.timeStamp, snapshot_queueData.version || 0);
+                    markTransactionProcessed(snapshot_queueData.eventID, snapshot_queueData.timeStamp, transactionState.process, snapshot_queueData.version || 0);
                 } catch (err:any) {
                     console.log("Failed to update to finalize:", err.message || err);
                     await releaseProcessingLock(ref, snapshot_queueKey);
@@ -269,9 +274,9 @@ const Listener_FailedTransaction=(initFact:boolean,ref:Reference,performerCacheN
         if(snapshot_queue.key == null)return;
         const snapshot_queueKey:string = snapshot_queue.key;
         let snapshot_queueData:EventTransactionInfo = snapshot_queue.val();
-        console.log(`Retry : ${performerCacheName} ${snapshot_queueKey}`);
+        console.log(`Retry : ${performerCacheName} ${snapshot_queueKey} ${snapshot_queueData.timeStamp}`);
         
-        if (isTransactionDuplicate(snapshot_queueData.eventID, snapshot_queueData.timeStamp, snapshot_queueData.version || 0)) {
+        if (isTransactionDuplicate(snapshot_queueData.eventID, snapshot_queueData.timeStamp, transactionState.failed, snapshot_queueData.version || 0)) {
             console.log(`Duplicate retry detected: ${snapshot_queueData.eventID} v${snapshot_queueData.version}, skipping`);
             return;
         }
@@ -322,9 +327,9 @@ const Listener_FinalizeTransaction =(initFact:boolean,ref:Reference,performerCac
             if(snapshot_queue.key == null)return;
             const snapshot_queueKey:string = snapshot_queue.key;
             const snapshot_queueData:EventTransactionInfo = snapshot_queue.val();
-            console.log(`Finalize : ${performerCacheName} ${snapshot_queueKey}`);
+            console.log(`Finalize : ${performerCacheName} ${snapshot_queueKey} ${snapshot_queueData.timeStamp}`);
             
-            if (isTransactionDuplicate(snapshot_queueData.eventID, snapshot_queueData.timeStamp, snapshot_queueData.version || 0)) {
+            if (isTransactionDuplicate(snapshot_queueData.eventID, snapshot_queueData.timeStamp, transactionState.finalize, snapshot_queueData.version || 0)) {
                 console.log(`Duplicate finalize detected: ${snapshot_queueData.eventID} v${snapshot_queueData.version}, skipping`);
                 return;
             }
@@ -388,7 +393,7 @@ const Listener_PendingTransaction = (initFact:boolean,ref:Reference,performerCac
     
         const snapshot_queueKey: string = snapshot_queue.key;
         const snapshot_queueData: EventTransactionInfo = snapshot_queue.val();
-        console.log(`Pending : ${performerCacheName} ${snapshot_queueKey}`);
+        console.log(`Pending : ${performerCacheName} ${snapshot_queueKey} ${snapshot_queueData.timeStamp}`);
 
         ref.orderByChild("state").equalTo(transactionState.pending).once('child_removed',async (snapshot_queue:DataSnapshot) => {
             PerformerCaches.child(performerCacheName+"/pendingTrace/total").transaction((totalTransactionUpdate:number|null)=>{

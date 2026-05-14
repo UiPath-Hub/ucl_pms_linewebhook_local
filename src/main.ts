@@ -89,6 +89,24 @@ LocalConfigs.child(strUiPathFolder_MeterRecord).on('child_changed',(snapshot)=>{
     PerformerCaches.child(CallUipathAPIEventPerformerName).set(DefaultCallUipathAPIEventPerformerCache);
 })
 
+// LocalConfigs cache for improved data availability
+let LocalConfigsCache: {[key: string]: any} = {
+    [strlocalImagePath]: DefaultlocalImagePath,
+    [strsaveImageOnLocal]: DefaultsaveImageOnLocal,
+    [strUiPathFolder_MeterRecord]: DefaultUiPathFolder_MeterRecord,
+    [strUiPathFolder_ERPSync]: DefaultUiPathFalder_ERPSync,
+    [strQueueName_MeterRecord]: DefaultQueueName_MeterRecord,
+    [strQueueName_ERPSync]: DefaultQueueName_ERPSync
+};
+
+// Real-time listener to keep LocalConfigsCache updated
+LocalConfigs.on('value', (snapshot) => {
+    if (snapshot.exists()) {
+        LocalConfigsCache = { ...LocalConfigsCache, ...snapshot.val() };
+        console.log('LocalConfigsCache updated:', LocalConfigsCache);
+    }
+});
+
 ServerHealth.child("lastActive").on('value',(DataSnapshot:DataSnapshot)=>{
     ServerHealth.child("lastActive").set(moment().tz('Asia/Bangkok').format("YYYY-MM-DD HH:mm:ss"));
     setTimeout(() => {
@@ -96,6 +114,12 @@ ServerHealth.child("lastActive").on('value',(DataSnapshot:DataSnapshot)=>{
         ServerHealth.child("lastActive").set(moment().tz('Asia/Bangkok').format("YYYY-MM-DD HH:mm:ss"));
     }, 60000);
 })
+
+// Helper function to get LocalConfigs values from cache
+const getLocalConfigValue = (key: string, defaultValue: any = null): any => {
+    const value = LocalConfigsCache[key];
+    return value !== undefined && value !== null ? value : defaultValue;
+};
 
 const validateEnvironmentVariables = (): void => {
     const requiredEnvVars = [
@@ -282,7 +306,7 @@ const startServer = async () => {
                 if (saveImageInfo != undefined) {
                     //setRealtimeDatabase(LineEventsLogStorage, 'true', snapshot_queueData.eventID, 'getImg');
                     //setRealtimeDatabase(LineEventsLogStorage, saveImageInfo, snapshot_queueData.eventID, 'saveImgPath');
-                    let queueName = await getRealtimeDatabase(LocalConfigs,strQueueName_MeterRecord,"");
+                    let queueName = getLocalConfigValue(strQueueName_MeterRecord, DefaultQueueName_MeterRecord);
                     if(!queueName){ 
                         setRealtimeDatabase(LocalConfigs,DefaultQueueName_MeterRecord,strQueueName_MeterRecord,"");
                         queueName = DefaultQueueName_MeterRecord;
@@ -312,7 +336,7 @@ const startServer = async () => {
                 }
             }else if(snapshot_queueData.type===DefaultQueueName_ERPSync){
                 //ERP Sync Queue process here
-                let queueName = await getRealtimeDatabase(LocalConfigs,strQueueName_ERPSync,"");
+                let queueName = getLocalConfigValue(strQueueName_ERPSync, DefaultQueueName_ERPSync);
                 if(!queueName){ 
                     setRealtimeDatabase(LocalConfigs,DefaultQueueName_ERPSync,strQueueName_ERPSync,"");
                     queueName = DefaultQueueName_ERPSync;
@@ -391,7 +415,7 @@ const reauth =async ()=>{
         const folderInfos:any = {};
         
         await Promise.all(allFolders.map(async (folder)=>{
-            const getConfigFolder = await getRealtimeDatabase(LocalConfigs,folder.FolderKey,"");
+            const getConfigFolder = getLocalConfigValue(folder.FolderKey, folder.Default);
             const compare_value = getConfigFolder?getConfigFolder:folder.Default;
             if(!getConfigFolder){
                 setRealtimeDatabase(LocalConfigs,folder.Default,folder.FolderKey,"");
@@ -509,9 +533,9 @@ const getLineImageToLocalPath = async (message: ImageMessage,messageName: string
                     throw new Error('Missing content-type header');
                 }
                 const [mimeType, extension] = contentType.split('/'); // ใช้ headers แทน data.type
-                let LocalPath:string = await getRealtimeDatabase(LocalConfigs,"localImagePath","");
-                if(!LocalPath || LocalPath.trim()==""){ setRealtimeDatabase(LocalConfigs,"C:","localImagePath","");}
-                const defaultPath:string = "C:"
+                let LocalPath:string = getLocalConfigValue(strlocalImagePath, DefaultlocalImagePath);
+                if(!LocalPath || LocalPath.trim()==""){ setRealtimeDatabase(LocalConfigs,DefaultlocalImagePath,strlocalImagePath,"");}
+                const defaultPath:string = DefaultlocalImagePath
                 // Construct file path
                 //const filePath = path.join(__dirname,LocalPath || defaultPath, save_date, `img${messageName}.${extension}`);
                 const basePath = path.isAbsolute(LocalPath) ? LocalPath : defaultPath;
@@ -618,9 +642,9 @@ const getAndSaveLineImage = async (
     save_date: string
 ): Promise<SaveImageInfo> => {
     console.log(`start getAndSaveLineImage(): ${moment().tz("Asia/Bangkok").format("YYYY/MM/DD HH:mm:ss")}`);
-    const saveMethod= await getRealtimeDatabase(LocalConfigs,"saveImageOnLocal","");
+    const saveMethod= getLocalConfigValue(strsaveImageOnLocal, DefaultsaveImageOnLocal);
     const image_name = `${message.id}${message.imageSet?.index != undefined ? 'i' + message.imageSet?.index : '1'}_${Date.now().toString()}`;
-    if(!saveMethod)setRealtimeDatabase(LocalConfigs,false,"saveImageOnLocal","");
+    if(!saveMethod)setRealtimeDatabase(LocalConfigs,DefaultsaveImageOnLocal,strsaveImageOnLocal,"");
 
     const saveImageInfo = saveMethod==true? await getLineImageToLocalPath(message, image_name, save_date): await getLineImage(message, image_name, save_date);
     return saveImageInfo;
