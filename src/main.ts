@@ -1,4 +1,4 @@
-import {storageBucket,databaseURL, app, database,PerformerCaches, transactionState ,ServerInstanceDatabase,Listener_NewTransaction, Listener_PrecessTransaction, Listener_FinalizeTransaction, Listener_FailedTransaction, Listener_PendingTransaction} from './template';
+import {storageBucket,databaseURL, app, database, transactionState ,ServerInstanceDatabase,Listener_NewTransaction} from './newTemplete';
 import moment from 'moment-timezone';
 import { getStorage } from 'firebase-admin/storage';
 import { Reference ,DataSnapshot } from "firebase-admin/database";
@@ -33,8 +33,8 @@ const UIpathCloudTenantAddress=token.UIPATH_CLOUD_TENANT_ADDRESS//: StringParam 
 const UipathScope = token.UIPATH_SCOPE
 
 const lineEventRef = "line_events";
-const ImageEventPerformerName = "ImageEvents";
-const CallUipathAPIEventPerformerName = "UiPathEvents";
+//const ImageEventPerformerName = "ImageEvents";
+//const CallUipathAPIEventPerformerName = "UiPathEvents";
 const strPerformerCaches = "PerformerCaches";
 const strImageTransactions = "ImageTransactions";
 const strUiPathAPITransactions = "UiPathAPITransactions";
@@ -71,23 +71,10 @@ const DefaultQueueName_ERPSync = "ERPSync";
 
 //running flags
 let IsInit = false;
-const getAuthenticationProcessRunning:{running:boolean} = {running:false};
-
-PerformerCaches.child(ImageEventPerformerName+"/maxTrace").on('value',(snapshot)=>{
-    if(snapshot.exists())DefaultImageEventPerformerCache.maxTrace = snapshot.val();
-})
-PerformerCaches.child(CallUipathAPIEventPerformerName+"/maxTrace").on('value',(snapshot)=>{
-    if(snapshot.exists())DefaultCallUipathAPIEventPerformerCache.maxTrace = snapshot.val();
-})
-PerformerCaches.child(ImageEventPerformerName).on('child_removed',(snapshot)=>{
-    PerformerCaches.child(ImageEventPerformerName).set(DefaultImageEventPerformerCache);
-})
-PerformerCaches.child(CallUipathAPIEventPerformerName).on('child_removed',(snapshot)=>{
-    PerformerCaches.child(CallUipathAPIEventPerformerName).set(DefaultCallUipathAPIEventPerformerCache);
-})
-LocalConfigs.child(strUiPathFolder_MeterRecord).on('child_changed',(snapshot)=>{
-    PerformerCaches.child(CallUipathAPIEventPerformerName).set(DefaultCallUipathAPIEventPerformerCache);
-})
+let LocalUiPathAuth:
+    uipathToken | null = null;
+let AuthenticationPromise:
+    Promise<void> | null = null;
 
 // LocalConfigs cache for improved data availability
 let LocalConfigsCache: {[key: string]: any} = {
@@ -177,11 +164,6 @@ const initServer = (): Promise<void> => {
                     //resolve(); // Resolve Promise หลังจากตั้งค่าเสร็จ
                     //return;
                 }
-                currentCache[strPerformerCaches] =
-                    {
-                        [ImageEventPerformerName]: DefaultImageEventPerformerCache,
-                        [CallUipathAPIEventPerformerName]: DefaultCallUipathAPIEventPerformerCache
-                    };
                 if(currentCache[strLocalConfigs]===undefined || currentCache[strLocalConfigs]===null){
                     currentCache[strLocalConfigs] = {};
                 }
@@ -223,12 +205,6 @@ const initServer = (): Promise<void> => {
                     });
                     currentCache[strUiPathAPITransactions] = uipathTransaction;
                 }
-
-                const updateCache = {
-                    [ImageEventPerformerName]: DefaultImageEventPerformerCache,
-                    [CallUipathAPIEventPerformerName]: DefaultCallUipathAPIEventPerformerCache
-                };
-                currentCache[strPerformerCaches] = updateCache;
                 
                 await ServerInstanceDatabase.set(currentCache);
                 IsInit = true;
@@ -247,18 +223,7 @@ const startServer = async () => {
         console.log("Server Start");
         IsInit = true;
         //image event
-        Listener_NewTransaction(IsInit,LineTransactionQueue,ImageEventPerformerName,DefaultImageEventPerformerCache);
-        Listener_PendingTransaction(IsInit,LineTransactionQueue,ImageEventPerformerName,DefaultImageEventPerformerCache);
-        Listener_FailedTransaction(IsInit,LineTransactionQueue,ImageEventPerformerName,DefaultImageEventPerformerCache);
-        Listener_FinalizeTransaction(IsInit,LineTransactionQueue,ImageEventPerformerName,DefaultImageEventPerformerCache,async (snapshot_queueKey:string,snapshot_queueData:EventTransactionInfo)=>{
-            const newCallUipathAPIQueue:EventTransactionInfo = {...snapshot_queueData,type:DefaultQueueName_MeterRecord};
-            newCallUipathAPIQueue.state = transactionState.new;
-            newCallUipathAPIQueue.retriesCount = 0;
-            newCallUipathAPIQueue.version = 0;
-            newCallUipathAPIQueue.timeStamp = Date.now();
-            CallUipathAPITransactionQueue.push(newCallUipathAPIQueue);
-        });
-        Listener_PrecessTransaction(IsInit,LineTransactionQueue,ImageEventPerformerName,async (snapshot_queueKey:string,snapshot_queueData:EventTransactionInfo)=>{
+        const processLineImageEvent = async (snapshot_queueKey:string,snapshot_queueData:EventTransactionInfo)=>{
             const line_event = await getRealtimeDatabase(LineEventsLogStorage,snapshot_queueData.eventID,'');
             if(line_event == undefined){
                 console.log("line_events log not found.");
@@ -271,103 +236,164 @@ const startServer = async () => {
                 await setRealtimeDatabase(LineEventsLogStorage, saveImageInfo, snapshot_queueData.eventID, 'saveImgPath');
             }
             return saveImageInfo;
-        })
-
+        };
+        const finalizeLineImageEvent = async (snapshot_queueKey:string,snapshot_queueData:EventTransactionInfo)=>{
+            const newCallUipathAPIQueue:EventTransactionInfo = {...snapshot_queueData,type:DefaultQueueName_MeterRecord};
+            newCallUipathAPIQueue.state = transactionState.new;
+            newCallUipathAPIQueue.retriesCount = 0;
+            newCallUipathAPIQueue.version = 0;
+            newCallUipathAPIQueue.timeStamp = Date.now();
+            CallUipathAPITransactionQueue.push(newCallUipathAPIQueue);
+        };
+        Listener_NewTransaction(IsInit,LineTransactionQueue,DefaultImageEventPerformerCache,undefined,processLineImageEvent,finalizeLineImageEvent);
+ 
 
         //uipath event
-        Listener_NewTransaction(IsInit,CallUipathAPITransactionQueue,CallUipathAPIEventPerformerName,DefaultCallUipathAPIEventPerformerCache,async (snapshot_queueKey:string,snapshot_queueData:EventTransactionInfo)=>{
-            const Cache = await PerformerCaches.child(CallUipathAPIEventPerformerName).once('value');
-            if(Cache.val()){
-                const CacheValues:performerCache = Cache.val()
-                if(CacheValues.auth){
-                    if(!isTokenExpired(CacheValues.auth)){
-                        //console.log("valid")
-                        return "valid";
-                    }
-                    
-                }
+        const initializeUiPathTransaction =
+        async (
+            snapshot_queueKey: string,
+            snapshot_queueData: EventTransactionInfo
+        ): Promise<"valid" | "invalid"> => {
+            //already authenticated
+            if (LocalUiPathAuth &&!isTokenExpired(LocalUiPathAuth)) {
+                return "valid";
             }
-            //console.log("invalid");
-            await reauth();
+
+            //authentication already running
+            if (AuthenticationPromise) {
+
+                await CallUipathAPITransactionQueue
+                    .child(snapshot_queueKey)
+                    .update({
+                        state:
+                            transactionState
+                                .pending_authentication,
+                        pendingReason:
+                            "waiting for authentication"
+                    });
+                return "invalid";
+            }
+            // perform authentication
+            await ensureAuthenticated();
             return "valid";
-        });
-        Listener_PendingTransaction(IsInit,CallUipathAPITransactionQueue,CallUipathAPIEventPerformerName,DefaultCallUipathAPIEventPerformerCache);
-        Listener_FailedTransaction(IsInit,CallUipathAPITransactionQueue,CallUipathAPIEventPerformerName,DefaultCallUipathAPIEventPerformerCache);
-        Listener_FinalizeTransaction(IsInit,CallUipathAPITransactionQueue,CallUipathAPIEventPerformerName,DefaultCallUipathAPIEventPerformerCache);
-        Listener_PrecessTransaction(IsInit,CallUipathAPITransactionQueue,CallUipathAPIEventPerformerName,async (snapshot_queueKey:string,snapshot_queueData:EventTransactionInfo)=>{
-            if(snapshot_queueData.type===DefaultQueueName_MeterRecord){
-                const line_event = await getRealtimeDatabase(LineEventsLogStorage,snapshot_queueData.eventID,'event');
-                if(line_event == undefined){
-                    console.log("line_events log not found.");
-                    throw new Error("line_events log not found.");
-                }
-                ///////////////////
-                let saveImageInfo= await getRealtimeDatabase(LineEventsLogStorage,snapshot_queueData.eventID,"saveImgPath");
-                if (saveImageInfo != undefined) {
-                    //setRealtimeDatabase(LineEventsLogStorage, 'true', snapshot_queueData.eventID, 'getImg');
-                    //setRealtimeDatabase(LineEventsLogStorage, saveImageInfo, snapshot_queueData.eventID, 'saveImgPath');
-                    let queueName = getLocalConfigValue(strQueueName_MeterRecord, DefaultQueueName_MeterRecord);
-                    if(!queueName){ 
-                        setRealtimeDatabase(LocalConfigs,DefaultQueueName_MeterRecord,strQueueName_MeterRecord,"");
-                        queueName = DefaultQueueName_MeterRecord;
-                    }
-                    const content: UnrecognizedImagesContent = {
-                        "LineEvent": JSON.stringify(line_event), 
-                        "StorageBucket": storageBucket.value(), 
-                        "PublicImageURL": saveImageInfo.publicURL, 
-                        "ImagePath": saveImageInfo.filePath, 
-                        "LogURL": databaseURL.value() + "/" +lineEventRef + "/" + snapshot_queueData.eventID, "CreateDate": snapshot_queueData.date + " " + snapshot_queueData.time 
-                    };
-                    const queue_detail: QueueItemDataDto = {
-                        "Name": queueName,
-                        "Priority": "Normal",
-                        "Reference": snapshot_queueData.eventID,
-                        "SpecificContent": content
-                    }
-                    const uiPathAuth: uipathToken = await getRealtimeDatabase(PerformerCaches,CallUipathAPIEventPerformerName,"auth");
-                    const folder_info: Folder = uiPathAuth.folderInfo[strUiPathFolder_MeterRecord];
-                    if(typeof folder_info === "string" || folder_info === null || folder_info === undefined){
-                        throw new Error("Folder info error: "+folder_info||"null");
-                    }else{
-                        await AddUiPathQueueItem(queue_detail,`${uiPathAuth.token_type} ${uiPathAuth.access_token}`,folder_info.Id);
-                    }
-                }else{
-                    throw new Error("saveImageInfo not found.");
-                }
-            }else if(snapshot_queueData.type===DefaultQueueName_ERPSync){
-                //ERP Sync Queue process here
-                let queueName = getLocalConfigValue(strQueueName_ERPSync, DefaultQueueName_ERPSync);
-                if(!queueName){ 
-                    setRealtimeDatabase(LocalConfigs,DefaultQueueName_ERPSync,strQueueName_ERPSync,"");
-                    queueName = DefaultQueueName_ERPSync;
+        };
+        const processUiPathEvent =
+            async (
+                snapshot_queueKey: string,
+                snapshot_queueData: EventTransactionInfo
+            ) => {
+
+            if (!LocalUiPathAuth) {
+                throw new Error("UiPath authentication not initialized");
+            }
+
+            if (snapshot_queueData.type ===DefaultQueueName_MeterRecord) {
+
+                const line_event =
+                    await getRealtimeDatabase(
+                        LineEventsLogStorage,
+                        snapshot_queueData.eventID,
+                        'event'
+                    );
+
+                if (!line_event) {
+
+                    throw new Error(
+                        "line_events log not found."
+                    );
                 }
 
-                const content: any = {
-                    ...snapshot_queueData.parameters
+                const saveImageInfo =
+                    await getRealtimeDatabase(
+                        LineEventsLogStorage,
+                        snapshot_queueData.eventID,
+                        "saveImgPath"
+                    );
+
+                if (!saveImageInfo) {
+                    throw new Error(
+                        "saveImageInfo not found."
+                    );
+                }
+
+                const queueName =
+                    getLocalConfigValue(
+                        strQueueName_MeterRecord,
+                        DefaultQueueName_MeterRecord
+                    );
+
+                const content:
+                    UnrecognizedImagesContent = {
+
+                    LineEvent:JSON.stringify(line_event),
+                    StorageBucket:storageBucket.value(),
+                    PublicImageURL:saveImageInfo.publicURL,
+                    ImagePath:saveImageInfo.filePath,
+                    LogURL:
+                        databaseURL.value() +
+                        "/" +
+                        lineEventRef +
+                        "/" +
+                        snapshot_queueData.eventID,
+                    CreateDate:
+                        snapshot_queueData.date +
+                        " " +
+                        snapshot_queueData.time
                 };
-                const queue_detail: QueueItemDataDto = {
-                    "Name": queueName,
-                    "Priority": "Normal",
-                    "Reference": snapshot_queueData.eventID,
-                    "SpecificContent": content
-                }
-                const uiPathAuth: uipathToken = await getRealtimeDatabase(PerformerCaches,CallUipathAPIEventPerformerName,"auth");
-                const folder_info: Folder = uiPathAuth.folderInfo[strUiPathFolder_ERPSync];
-                if(typeof folder_info === "string" || folder_info === null || folder_info === undefined){
-                    throw new Error("Folder info error: "+folder_info||"null");
-                }else{
-                    await AddUiPathQueueItem(queue_detail,`${uiPathAuth.token_type} ${uiPathAuth.access_token}`,folder_info.Id);
-                }
-            }
-            else{
-                throw new Error("Unknown Queue Type: "+snapshot_queueData.type);
-            }
-            
-        })
+                const queue_detail:
+                    QueueItemDataDto = {
+                    Name:queueName,
+                    Priority:"Normal",
+                    Reference:snapshot_queueData.eventID,
+                    SpecificContent:content
+                };
+                const folder_info: Folder =
+                    LocalUiPathAuth.folderInfo[strUiPathFolder_MeterRecord];
+                await AddUiPathQueueItem(
+                    queue_detail,
+                    `${LocalUiPathAuth.token_type} ${LocalUiPathAuth.access_token}`,
+                    folder_info.Id
+                );
+            } else if (snapshot_queueData.type ===DefaultQueueName_ERPSync) {
+                const queueName =
+                    getLocalConfigValue(strQueueName_ERPSync,DefaultQueueName_ERPSync);
 
+                const queue_detail:
+                    QueueItemDataDto = {
+                    Name:queueName,
+                    Priority:"Normal",
+                    Reference:snapshot_queueData.eventID,
+                    SpecificContent:
+                        {
+                            ...snapshot_queueData.parameters
+                        }
+                };
+                const folder_info: Folder =
+                    LocalUiPathAuth.folderInfo[
+                        strUiPathFolder_ERPSync
+                    ];
+
+                await AddUiPathQueueItem(
+                    queue_detail,
+                    `${LocalUiPathAuth.token_type} ${LocalUiPathAuth.access_token}`,
+                    folder_info.Id
+                );
+
+            } else {
+                throw new Error(`Unknown Queue Type: ${snapshot_queueData.type}`);
+            }
+        };
+        Listener_NewTransaction(
+            IsInit,
+            CallUipathAPITransactionQueue,
+            DefaultCallUipathAPIEventPerformerCache,
+            initializeUiPathTransaction,
+            processUiPathEvent
+        );
     } catch (error) {
         console.error("Failed to initialize server:", error);
     }
+    
 };
 
 startServer();
@@ -375,92 +401,261 @@ startServer();
 /////////////////
 /////modules/////
 /////////////////
-const isTokenExpired = (auth:uipathToken|undefined)=>{
-    if(!auth)return true;
-    if(!auth.expired_time)return true;
-    const tokenExpiresMoment = moment(auth.expired_time, 'YYYYMMDDHHmmssSSS').tz('Asia/Bangkok');
-    const isTokenExpired = moment().tz('Asia/Bangkok').isAfter(tokenExpiresMoment);
-    return isTokenExpired;
-}
+const isTokenExpired = (
+    auth: uipathToken | null
+): boolean => {
 
-const reauth =async ()=>{
-    if(getAuthenticationProcessRunning.running)return;   
-    setTimeout(()=>getAuthenticationProcessRunning.running=false,5000);
-    getAuthenticationProcessRunning.running=true;
-    console.log("re-authentication");
-    const clientId = UIpathAppID.trim();
-    const clientSecret = UIpathAppSecret.trim().replace(/\\/g, "");
-    //console.log(`${clientId} @@ ${UIpathAppSecret} @@ ${clientSecret}`);
+    if (!auth) return true;
 
-    const url = 'https://cloud.uipath.com/identity_/connect/token';
-    const method = 'POST';
-    const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
-    const data = qs.stringify({
-        grant_type: 'client_credentials',
-        client_id: clientId,
-        client_secret: clientSecret,
-        scope: UipathScope
+    if (!auth.expired_time)
+        return true;
+
+    const tokenExpiresMoment =
+        moment(
+            auth.expired_time,
+            'YYYYMMDDHHmmssSSS'
+        ).tz('Asia/Bangkok');
+
+    return moment()
+        .tz('Asia/Bangkok')
+        .isAfter(tokenExpiresMoment);
+};
+
+const releaseAuthenticationPendingTransactions =
+    async (): Promise<void> => {
+        console.log(
+            `Releasing authentication pending transactions`
+        );
+    const snapshot =
+        await CallUipathAPITransactionQueue
+            .orderByChild("state")
+            .equalTo(
+                transactionState
+                    .pending_authentication
+            )
+            .get();
+
+    if (!snapshot.exists())
+        return;
+
+    const updates: any = {};
+
+    snapshot.forEach((child) => {
+
+        if (!child.key)
+            return;
+
+        updates[
+            `${child.key}/state`
+        ] = transactionState.new;
     });
-    
-    const response =  await axios({url,method,headers,data,timeout: 15000})
-    if(response.data){
-        response.data.expired_time = moment().tz('Asia/Bangkok').add(moment.duration(response.data.expires_in - 60, 'seconds')).format('YYYYMMDDHHmmssSSS');
-        const accessToken = `${response.data.token_type} ${response.data.access_token}`;
 
-        //get folder info
-        const allFolders:{FolderKey:string,Default:string}[] = [{FolderKey:strUiPathFolder_MeterRecord,Default:DefaultUiPathFolder_MeterRecord}
-            ,{FolderKey:strUiPathFolder_ERPSync,Default:DefaultUiPathFalder_ERPSync}];
-        const MainURL = UIpathCloudTenantAddress.trim().replace(/\/$/, "") + "/orchestrator_/odata/Folders";
-        const filter_properties = "FullyQualifiedName";
-        const folderInfos:any = {};
-        
-        await Promise.all(allFolders.map(async (folder)=>{
-            const getConfigFolder = getLocalConfigValue(folder.FolderKey, folder.Default);
-            const compare_value = getConfigFolder?getConfigFolder:folder.Default;
-            if(!getConfigFolder){
-                setRealtimeDatabase(LocalConfigs,folder.Default,folder.FolderKey,"");
-            }
-            const encodedCompareValue = encodeURIComponent(compare_value);
+    await CallUipathAPITransactionQueue
+        .update(updates);
 
-            const folderInfoResponse = await axios({
-                url: `${MainURL}?%24filter=${filter_properties}%20eq%20%27${encodedCompareValue}%27`,
-                method: "GET",
-                headers: { 
-                    accept: "application/json",
-                    Authorization: accessToken
-                },
-                timeout: 15000
-            })
-            if(folderInfoResponse.data){
-                if(parseInt(folderInfoResponse.data["@odata.count"])>0){
-                    const folder_info = folderInfoResponse.data.value[0];
-                    folderInfos[folder.FolderKey] = folder_info;
-                }else{
-                    console.log(`Folder ${compare_value} not found.`);
-                    folderInfos[folder.FolderKey] = "Folder not found";
+    console.log(
+        `Released authentication pending transactions`
+    );
+};
+const reauth = async ():
+    Promise<uipathToken> => {
+
+    console.log("re-authentication");
+
+    const clientId =UIpathAppID.trim();
+
+    const clientSecret =UIpathAppSecret
+            .trim()
+            .replace(/\\/g, "");
+
+    const url ='https://cloud.uipath.com/identity_/connect/token';
+
+    const method = 'POST';
+
+    const headers = {
+        'Content-Type':
+            'application/x-www-form-urlencoded'
+    };
+
+    const data = qs.stringify({
+        grant_type:
+            'client_credentials',
+        client_id:
+            clientId,
+        client_secret:
+            clientSecret,
+        scope:
+            UipathScope
+    });
+    const response =
+        await axios({
+            url,
+            method,
+            headers,
+            data,
+            timeout: 15000
+        });
+    if (!response.data) {
+        throw new Error(
+            "Unknown authentication response"
+        );
+    }
+    response.data.expired_time =
+        moment()
+            .tz('Asia/Bangkok')
+            .add(
+                moment.duration(
+                    response.data.expires_in - 60,
+                    'seconds'
+                )
+            )
+            .format(
+                'YYYYMMDDHHmmssSSS'
+            );
+    const accessToken =
+        `${response.data.token_type} ${response.data.access_token}`;
+    const allFolders = [
+        {
+            FolderKey:
+                strUiPathFolder_MeterRecord,
+            Default:
+                DefaultUiPathFolder_MeterRecord
+        },
+        {
+            FolderKey:
+                strUiPathFolder_ERPSync,
+            Default:
+                DefaultUiPathFalder_ERPSync
+        }
+    ];
+    const folderInfos: any = {};
+
+    await Promise.all(
+
+        allFolders.map(
+            async (folder) => {
+
+                const getConfigFolder =
+                    getLocalConfigValue(
+                        folder.FolderKey,
+                        folder.Default
+                    );
+
+                const compare_value =
+                    getConfigFolder
+                        ? getConfigFolder
+                        : folder.Default;
+
+                const encodedCompareValue =
+                    encodeURIComponent(
+                        compare_value
+                    );
+
+                const MainURL =
+                    UIpathCloudTenantAddress
+                        .trim()
+                        .replace(/\/$/, "") +
+                    "/orchestrator_/odata/Folders";
+
+                const folderInfoResponse =
+                    await axios({
+
+                        url:
+                            `${MainURL}?%24filter=FullyQualifiedName%20eq%20%27${encodedCompareValue}%27`,
+
+                        method: "GET",
+
+                        headers: {
+
+                            accept:
+                                "application/json",
+
+                            Authorization:
+                                accessToken
+                        },
+
+                        timeout: 15000
+                    });
+
+                if (
+                    folderInfoResponse.data &&
+                    parseInt(
+                        folderInfoResponse
+                            .data["@odata.count"]
+                    ) > 0
+                ) {
+
+                    folderInfos[
+                        folder.FolderKey
+                    ] =
+                        folderInfoResponse
+                            .data.value[0];
+
+                } else {
+
+                    folderInfos[
+                        folder.FolderKey
+                    ] =
+                        "Folder not found";
                 }
-            }else console.log("Unknown folderInfoResponse.",folderInfoResponse);
-
-        }));
-
-        response.data.folderInfo = folderInfos;
-        await PerformerCaches.child(CallUipathAPIEventPerformerName+"/auth").set(response.data,(err)=>{if(err)console.log("Could not set auth data."+err.message||err)});
-        const AuthenticatedFinalizeTransaction : EventTransactionInfo = {
-                eventID:"UiPathAuth",
-                date:"-",
-                time:"-",
-                state: transactionState.finalize,
-                retriesCount:0,
-                timeStamp:0,
-                type:"UiPathAuth",
-                version:0
             }
-        await CallUipathAPITransactionQueue.child("Authenticated").set(AuthenticatedFinalizeTransaction);
-        getAuthenticationProcessRunning.running=false;
+        )
+    );
+
+    response.data.folderInfo =
+        folderInfos;
+
+    return response.data;
+};
+
+const ensureAuthenticated =
+    async (): Promise<void> => {
+        console.log("Ensuring authentication...");
+    /**
+     * already authenticated
+     */
+    if (
+        LocalUiPathAuth &&
+        !isTokenExpired(
+            LocalUiPathAuth
+        )
+    ) {return;}
+
+    /**
+     * already authenticating
+     */
+    if (AuthenticationPromise) {
+
+        await AuthenticationPromise;
 
         return;
-    }else console.log("Unknown response.",response);
-}
+    }
+
+    /**
+     * create authentication lock
+     */
+    AuthenticationPromise = (async () => {
+
+        try {
+
+            const auth =
+                await reauth();
+
+            LocalUiPathAuth =
+                auth;
+
+            await releaseAuthenticationPendingTransactions();
+
+        } finally {
+
+            AuthenticationPromise =
+                null;
+        }
+
+    })();
+
+    await AuthenticationPromise;
+};
 
 const getRealtimeDatabase = (storage: Reference, key: string, trace: string): Promise<any> => {
     console.log(`start getRealtimeDatabase(key:${key},trace:${trace}): ${moment().tz("Asia/Bangkok").format("YYYY/MM/DD HH:mm.ss")}`)

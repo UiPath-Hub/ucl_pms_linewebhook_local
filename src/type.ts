@@ -85,8 +85,6 @@ export interface EventTransactionInfo{
     version?:number,
     retryDelayMs?:number,
     nextRetryAt?:number,
-    processingLocked?:boolean,
-    lockTime?:number,
     processedAt?:number
 }
 
