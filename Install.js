@@ -20,7 +20,7 @@ Script: ./dist/${packageJson.main}`);
   const missingVars = requiredEnvVars.filter(key => !process.env[key]);
   if (missingVars.length > 0) {
     console.error('Cannot install service. Missing environment variables:', missingVars.join(', '));
-    process.exit(1); // หยุด script ถ้า env ไม่ครบ
+    //process.exit(1); // หยุด script ถ้า env ไม่ครบ
   }
 
   // สร้าง array ของ env variables สำหรับ node-windows
