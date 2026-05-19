@@ -261,15 +261,11 @@ const startServer = async () => {
 
             //authentication already running
             if (AuthenticationPromise) {
-
                 await CallUipathAPITransactionQueue
                     .child(snapshot_queueKey)
                     .update({
-                        state:
-                            transactionState
-                                .pending_authentication,
-                        pendingReason:
-                            "waiting for authentication"
+                        state:transactionState.pending_authentication,
+                        pendingReason:"waiting for authentication"
                     });
                 return "invalid";
             }
@@ -423,20 +419,13 @@ const isTokenExpired = (
 
 const releaseAuthenticationPendingTransactions =
     async (): Promise<void> => {
-        console.log(
-            `Releasing authentication pending transactions`
-        );
+        console.log(`Releasing authentication pending transactions`);
     const snapshot =
         await CallUipathAPITransactionQueue
             .orderByChild("state")
-            .equalTo(
-                transactionState
-                    .pending_authentication
-            )
-            .get();
+            .equalTo(transactionState.pending_authentication).get();
 
-    if (!snapshot.exists())
-        return;
+    if (!snapshot.exists())return;
 
     const updates: any = {};
 
@@ -610,46 +599,24 @@ const reauth = async ():
 
 const ensureAuthenticated =
     async (): Promise<void> => {
-        console.log("Ensuring authentication...");
-    /**
-     * already authenticated
-     */
-    if (
-        LocalUiPathAuth &&
-        !isTokenExpired(
-            LocalUiPathAuth
-        )
-    ) {return;}
+    console.log("Ensuring authentication...");
+    //already authenticated
+    if (LocalUiPathAuth &&!isTokenExpired(LocalUiPathAuth)) return;
 
-    /**
-     * already authenticating
-     */
+    //already authenticating
     if (AuthenticationPromise) {
-
         await AuthenticationPromise;
-
         return;
     }
 
-    /**
-     * create authentication lock
-     */
+    //create authentication lock
     AuthenticationPromise = (async () => {
-
         try {
-
-            const auth =
-                await reauth();
-
-            LocalUiPathAuth =
-                auth;
-
+            const auth =await reauth();
+            LocalUiPathAuth =auth;
             await releaseAuthenticationPendingTransactions();
-
         } finally {
-
-            AuthenticationPromise =
-                null;
+            AuthenticationPromise =null;
         }
 
     })();

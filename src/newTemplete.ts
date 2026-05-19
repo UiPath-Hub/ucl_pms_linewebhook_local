@@ -49,7 +49,7 @@ const app = initializeApp({
 
 const database = getDatabase(app);
 
-const ServerInstanceDatabase = database.ref("/" + (process.env.SERVER_INSTANCE_DATABASE || "test"));
+const ServerInstanceDatabase = database.ref("/" + (process.env.SERVER_INSTANCE_DATABASE || "defaultInstanceName"));
 
 /**
  * =========================================================
@@ -655,26 +655,20 @@ const processTransactionPipeline = async (
 
 const Listener_NewTransaction = (
     initFact: boolean,
-
     ref: Reference,
-
     defaultCache: performerCache,
-
     initializeFunction?: (
         snapshot_queueKey: string,
         snapshot_queueData: EventTransactionInfo
     ) => Promise<"valid" | "invalid">,
-
     processFunction?: (
         snapshot_queueKey: string,
         snapshot_queueData: EventTransactionInfo
     ) => Promise<any | void>,
-
     finalizeFunction?: (
         snapshot_queueKey: string,
         snapshot_queueData: EventTransactionInfo
     ) => Promise<any | void>
-
 ) => {
 
     return ref
@@ -705,6 +699,7 @@ const Listener_NewTransaction = (
                         processFunction,
                         finalizeFunction
                     );
+                    //await updateTransactionState(ref,key,transactionState.successful);
 
                 } catch (err: any) {
 
