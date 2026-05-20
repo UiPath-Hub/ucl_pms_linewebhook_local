@@ -40,6 +40,10 @@ Script: ./dist/${packageJson.main}`);
     env: envVars
   });
 
+  svc.on('alreadyinstalled', () => {
+    console.log('Service already installed.');
+  });
+
   svc.on('install', () => {
     console.log('Service installed successfully!');
     svc.start();
